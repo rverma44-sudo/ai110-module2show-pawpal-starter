@@ -1,7 +1,7 @@
 # PawPal+ Project Reflection
 
 ## 1. System Design
-
+Add a pet, look at schedule for today, prioritize committments.
 **a. Initial design**
 
 - Briefly describe your initial UML design.
