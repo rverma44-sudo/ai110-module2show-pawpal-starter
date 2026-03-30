@@ -89,7 +89,7 @@ python -m pytest
 
 ## 📸 Demo
 
-<a href="/course_images/ai110/Pawpal_screenshot.png" target="_blank">
-  <img src='/course_images/ai110/Pawpal_screenshot.png'
-  title='PawPal App' width='' alt='PawPal App' class='center-block' />
+<a href="Pawpal_screenshot.png" target="_blank">
+  <img src='Pawpal_screenshot.png' 
+  title='PawPal App' width='700' alt='PawPal App' />
 </a>
