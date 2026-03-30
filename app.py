@@ -5,11 +5,7 @@ st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 
 # Owner must persist so pets and available-time settings survive every rerun
 if "owner" not in st.session_state:
-    st.session_state["owner"] = Owner(
-        name="Jordan",
-        email="",
-        available_minutes_per_day=60,
-    )
+    st.session_state["owner"] = Owner.load_from_json()
 
 # The active pet must persist so task additions target the correct Pet across reruns
 if "current_pet" not in st.session_state:
@@ -19,6 +15,9 @@ if "current_pet" not in st.session_state:
 if "scheduler" not in st.session_state:
     st.session_state["scheduler"] = None
 
+# Convenience alias — updated at the top of every rerun
+owner: Owner = st.session_state["owner"]
+
 
 def _make_scoped_scheduler(owner: Owner, pet: Pet) -> Scheduler:
     """Build a Scheduler scoped to one pet, sharing the owner's time budget."""
@@ -27,10 +26,50 @@ def _make_scoped_scheduler(owner: Owner, pet: Pet) -> Scheduler:
     return Scheduler(scoped)
 
 
+def _toggle_task(task_name: str, cb_key: str) -> None:
+    """Toggle task completion state, save, and regenerate the schedule."""
+    new_value = st.session_state[cb_key]
+    sched: Scheduler | None = st.session_state["scheduler"]
+    own: Owner = st.session_state["owner"]
+    if sched is None:
+        return
+    target = next((t for t in sched.scheduled_tasks if t.name == task_name), None)
+    if target is None:
+        return
+    if new_value:
+        sched.mark_task_complete(task_name)
+    else:
+        target.reset()
+    own.save_to_json()
+    sched.generate_plan()
+
+
+# --- Sidebar: Daily Summary ------------------------------------------------
+with st.sidebar:
+    st.header("📊 Daily Summary")
+    st.markdown(f"**Owner:** {owner.name}")
+    st.markdown(f"**Daily budget:** {owner.available_minutes_per_day} min")
+
+    all_pets = owner.get_pets()
+    all_tasks = owner.get_all_tasks()
+    st.markdown(f"**Pets registered:** {len(all_pets)}")
+    st.markdown(f"**Total tasks:** {len(all_tasks)}")
+
+    sched_sidebar: Scheduler | None = st.session_state["scheduler"]
+    if sched_sidebar and sched_sidebar.scheduled_tasks:
+        scheduled_today = sched_sidebar.scheduled_tasks
+        completed_count = sum(1 for t in scheduled_today if t.is_completed)
+        pending_count = len(scheduled_today) - completed_count
+        st.markdown(f"**Completed today:** {completed_count}")
+        st.markdown(f"**Pending today:** {pending_count}")
+        pct = completed_count / len(scheduled_today) if scheduled_today else 0.0
+        st.progress(pct, text=f"{completed_count}/{len(scheduled_today)} tasks done")
+    else:
+        st.info("No schedule generated yet.")
+
+
 # ---------------------------------------------------------------------------
 st.title("🐾 PawPal+")
-
-owner: Owner = st.session_state["owner"]
 
 # --- Owner settings --------------------------------------------------------
 st.subheader("Owner Settings")
@@ -51,6 +90,7 @@ with st.form("owner_form"):
         else:
             owner.name = owner_name_input.strip()
             owner.set_available_time(int(available_input))
+            owner.save_to_json()
             st.success(f"Updated: {owner.name}, {owner.available_minutes_per_day} min/day.")
 
 st.divider()
@@ -81,15 +121,38 @@ with st.form("add_pet_form"):
                 health_notes=health_notes,
             )
             owner.add_pet(new_pet)
+            owner.save_to_json()
             st.success(f"{new_pet.name} ({new_pet.species}) added successfully.")
 
 pets = owner.get_pets()
 if pets:
     st.markdown("**Your pets:**")
-    st.table([
-        {"Name": p.name, "Species": p.species, "Breed": p.breed, "Age (yrs)": p.age_years}
-        for p in pets
-    ])
+    for pet in pets:
+        with st.expander(f"🐾 {pet.name} — {pet.species} ({pet.breed}, {pet.age_years} yrs)"):
+            st.markdown(
+                f"**Species:** {pet.species}  |  **Breed:** {pet.breed}  |  **Age:** {pet.age_years} yrs"
+            )
+            if pet.health_notes:
+                st.markdown(f"**Health notes:** {', '.join(pet.health_notes)}")
+
+            pet_tasks = pet.get_tasks()
+            if pet_tasks:
+                total_task_min = pet.get_total_task_duration()
+                budget = owner.available_minutes_per_day
+                st.markdown(f"**Task duration total:** {total_task_min} / {budget} min")
+                st.table(
+                    [
+                        {
+                            "Task": t.display_name,
+                            "Priority": t.priority_label,
+                            "Duration (min)": t.duration_minutes,
+                            "Category": t.category,
+                        }
+                        for t in pet_tasks
+                    ]
+                )
+            else:
+                st.info("No tasks added for this pet yet.")
 
 st.divider()
 
@@ -111,7 +174,15 @@ else:
                 "Duration (minutes)", min_value=1, max_value=480, value=20
             )
         with col2:
-            priority_input = st.slider("Priority (1 = low, 5 = high)", min_value=1, max_value=5, value=3)
+            _PRIORITY_OPTIONS = [
+                "1 — Minimal ⚪",
+                "2 — Low 🟢",
+                "3 — Medium 🟡",
+                "4 — High 🟠",
+                "5 — Critical 🔴",
+            ]
+            _priority_label = st.selectbox("Priority", _PRIORITY_OPTIONS, index=2)
+            priority_input = int(_priority_label[0])
             category_input = st.selectbox(
                 "Category",
                 ["exercise", "nutrition", "health", "hygiene", "enrichment", "grooming", "other"],
@@ -127,6 +198,7 @@ else:
                     category=category_input,
                 )
                 selected_pet.add_task(new_task)
+                owner.save_to_json()
                 st.session_state["scheduler"] = _make_scoped_scheduler(owner, selected_pet)
                 st.session_state["scheduler"].generate_plan()
                 st.success(f"Task '{new_task.name}' added to {selected_pet.name}.")
@@ -134,19 +206,21 @@ else:
     current_tasks = selected_pet.get_tasks()
     if current_tasks:
         st.markdown(f"**All tasks for {selected_pet.name}:**")
-        st.table([
-            {
-                "Task": t.name,
-                "Duration (min)": t.duration_minutes,
-                "Priority": t.priority,
-                "Category": t.category,
-            }
-            for t in current_tasks
-        ])
+        st.table(
+            [
+                {
+                    "Task": t.display_name,
+                    "Duration (min)": t.duration_minutes,
+                    "Priority": t.priority_label,
+                    "Category": t.category,
+                }
+                for t in current_tasks
+            ]
+        )
 
 st.divider()
 
-# --- Today's schedule ------------------------------------------------------
+# --- Today's Schedule ------------------------------------------------------
 st.subheader("Today's Schedule")
 
 scheduler: Scheduler | None = st.session_state["scheduler"]
@@ -156,37 +230,60 @@ else:
     total = scheduler.get_total_scheduled_duration()
     budget = owner.available_minutes_per_day
     sorted_tasks = scheduler.sort_by_time()
+    scheduled_tasks = scheduler.scheduled_tasks
 
-    # Part 2 — Conflict status is the first thing the owner sees
+    # Status banners
     conflict_msg = scheduler.detect_conflicts()
     if conflict_msg:
         st.warning(f"⚠️ Scheduling Conflict Detected\n\n{conflict_msg}")
     else:
-        st.success("No scheduling conflicts")
+        st.success("✅ No scheduling conflicts")
 
-    # Part 1 — Budget summary and nearly-full alert
-    st.success(f"{len(sorted_tasks)} task(s) scheduled — {total} / {budget} min used")
-    if budget - total <= 10:
+    all_done = all(t.is_completed for t in scheduled_tasks)
+    high_priority_pending = any(t.priority >= 4 and not t.is_completed for t in scheduled_tasks)
+
+    if all_done:
+        st.success("🎉 All scheduled tasks are completed! Great job!")
+    elif high_priority_pending:
+        high_pending_names = [t.display_name for t in scheduled_tasks if t.priority >= 4 and not t.is_completed]
+        st.warning(f"⚠️ High-priority tasks still pending: {', '.join(high_pending_names)}")
+
+    if total <= budget:
+        st.success(f"Plan fits within your {budget}-minute daily budget — {total} min used, {budget - total} min remaining.")
+    if budget - total <= 10 and total > 0:
         st.warning(f"Schedule is nearly full — only {budget - total} min remaining.")
+    st.info(f"{len(sorted_tasks)} task(s) scheduled — {total} / {budget} min used")
 
-    # Part 1 — Sorted schedule table (chronological order, with Time column)
-    st.dataframe(
-        [
-            {
-                "Task": t.name,
-                "Time": t.time,
-                "Duration (min)": t.duration_minutes,
-                "Priority": t.priority,
-                "Category": t.category,
-            }
-            for t in sorted_tasks
-        ],
-        use_container_width=True,
-    )
+    # Schedule table with checkboxes
+    st.markdown("**Task Checklist:**")
+    hcols = st.columns([3, 2, 1, 2, 1, 2, 2])
+    for col, label in zip(hcols, ["Task", "Priority", "Min", "Category", "Time", "Due Date", "Status"]):
+        col.markdown(f"**{label}**")
+
+    for task in sorted_tasks:
+        cb_key = f"chk_{task.name}"
+        due_date = task.next_occurrence() or "One-time"
+        status_text = "✅ Done" if task.is_completed else "⏳ Pending"
+
+        rcols = st.columns([3, 2, 1, 2, 1, 2, 2])
+        with rcols[0]:
+            st.checkbox(
+                task.display_name,
+                value=task.is_completed,
+                key=cb_key,
+                on_change=_toggle_task,
+                args=(task.name, cb_key),
+            )
+        rcols[1].markdown(task.priority_label)
+        rcols[2].markdown(str(task.duration_minutes))
+        rcols[3].markdown(task.category)
+        rcols[4].markdown(task.time)
+        rcols[5].markdown(due_date)
+        rcols[6].markdown(status_text)
 
     st.divider()
 
-    # Part 3 — Plan explanation inside an expander to avoid cluttering the main view
+    # Plan explanation inside an expander to avoid cluttering the main view
     explanation_text = scheduler.explain_plan()
     with st.expander("Why was this plan chosen?"):
         st.text(explanation_text)
@@ -201,12 +298,12 @@ else:
     if excluded_tasks:
         st.warning(
             "Tasks excluded due to time constraints: "
-            + ", ".join(t.name for t in excluded_tasks)
+            + ", ".join(t.display_name for t in excluded_tasks)
         )
 
     st.divider()
 
-    # Part 4 — Filtered views
+    # Filtered views
     st.subheader("Filter Schedule")
     filter_choice = st.radio("Show", ["All", "Completed", "Incomplete"], horizontal=True)
 
@@ -221,11 +318,13 @@ else:
         st.table(
             [
                 {
-                    "Task": t.name,
+                    "Task": t.display_name,
+                    "Priority": t.priority_label,
                     "Time": t.time,
                     "Duration (min)": t.duration_minutes,
-                    "Priority": t.priority,
                     "Category": t.category,
+                    "Due Date": t.next_occurrence() or "One-time",
+                    "Status": "✅ Done" if t.is_completed else "⏳ Pending",
                 }
                 for t in filtered
             ]

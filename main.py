@@ -1,8 +1,18 @@
-from datetime import date
+from datetime import date, timedelta
+from tabulate import tabulate
 from pawpal_system import Owner, Pet, Task, Scheduler
 
 DIVIDER = "=" * 60
-SECTION  = "-" * 60
+SECTION  = "─" * 60
+
+SCHED_HEADERS = ["Task", "Category", "Duration (min)", "Priority", "Time", "Due Date", "Status"]
+
+
+def _task_row(task: Task) -> list:
+    """Build a tabulate row for a single task."""
+    due = task.next_occurrence() or "One-time"
+    status = "✅ Done" if task.is_completed else "⏳ Pending"
+    return [task.display_name, task.category, task.duration_minutes, task.priority_label, task.time, due, status]
 
 
 def _scheduler_for_pet(owner: Owner, pet: Pet) -> Scheduler:
@@ -21,12 +31,12 @@ def print_pet_schedule(owner: Owner, pet: Pet) -> None:
     scheduler = _scheduler_for_pet(owner, pet)
     scheduler.generate_plan()
 
-    all_tasks   = pet.get_tasks()
-    scheduled   = scheduler.scheduled_tasks
+    all_tasks       = pet.get_tasks()
+    scheduled       = scheduler.scheduled_tasks
     scheduled_names = {t.name for t in scheduled}
-    excluded    = [t for t in all_tasks if not t.is_completed and t.name not in scheduled_names]
-    total_min   = scheduler.get_total_scheduled_duration()
-    budget      = owner.available_minutes_per_day
+    excluded        = [t for t in all_tasks if not t.is_completed and t.name not in scheduled_names]
+    total_min       = scheduler.get_total_scheduled_duration()
+    budget          = owner.available_minutes_per_day
 
     print(SECTION)
     print(f"  {pet.name}  |  {pet.species}  |  {pet.breed}  |  {pet.age_years} yr old")
@@ -35,14 +45,8 @@ def print_pet_schedule(owner: Owner, pet: Pet) -> None:
     print(SECTION)
 
     if scheduled:
-        print("  Scheduled Tasks:")
-        for i, task in enumerate(scheduled, start=1):
-            print(
-                f"    {i}. {task.name:<22}"
-                f" | {task.duration_minutes:>3} min"
-                f" | priority {task.priority}"
-                f" | {task.category}"
-            )
+        print("  Today's Schedule:")
+        print(tabulate([_task_row(t) for t in scheduled], headers=SCHED_HEADERS, tablefmt="rounded_outline"))
     else:
         print("  No tasks could fit within today's time budget.")
 
@@ -52,13 +56,13 @@ def print_pet_schedule(owner: Owner, pet: Pet) -> None:
 
     if excluded:
         print()
-        print(f"  !! WARNING: {len(excluded)} task(s) excluded due to time limit:")
+        print(f"  ⚠️  WARNING: {len(excluded)} task(s) excluded due to time limit:")
         for task in sorted(excluded, key=lambda t: t.priority, reverse=True):
-            print(f"       - {task.name} ({task.duration_minutes} min, priority {task.priority})")
+            print(f"       - {task.display_name} ({task.duration_minutes} min, {task.priority_label})")
 
     print()
     print("  Scheduler Explanation:")
-    print("  " + "-" * 56)
+    print("  " + "─" * 56)
     for line in scheduler.explain_plan().splitlines():
         print(f"  {line}")
     print()
@@ -132,35 +136,35 @@ def main() -> None:
     max_scheduler.generate_plan()
 
     print("  Raw scheduled order (by priority, as generated):")
-    for t in max_scheduler.scheduled_tasks:
-        print(f"    {t.time}  {t.name}")
+    print(tabulate([_task_row(t) for t in max_scheduler.scheduled_tasks], headers=SCHED_HEADERS, tablefmt="rounded_outline"))
 
     print()
+    print(SECTION)
     print("  Chronological order (sort_by_time):")
-    for t in max_scheduler.sort_by_time():
-        print(f"    {t.time}  {t.name}")
+    print(tabulate([_task_row(t) for t in max_scheduler.sort_by_time()], headers=SCHED_HEADERS, tablefmt="rounded_outline"))
 
     # Mark one task complete to make status filtering interesting
     morning_walk = next(t for t in max_scheduler.scheduled_tasks if t.name == "Morning Walk")
     morning_walk.mark_complete()
 
     print()
+    print(SECTION)
     print("  [ Marked 'Morning Walk' as complete ]")
+
     print()
     print("  filter_by_status(True)  — completed tasks:")
     done = max_scheduler.filter_by_status(True)
     if done:
-        for t in done:
-            print(f"    [x]  {t.name}")
+        print(tabulate([_task_row(t) for t in done], headers=SCHED_HEADERS, tablefmt="rounded_outline"))
     else:
         print("    (none)")
 
     print()
+    print(SECTION)
     print("  filter_by_status(False)  — pending tasks:")
     pending = max_scheduler.filter_by_status(False)
     if pending:
-        for t in pending:
-            print(f"    [ ]  {t.name}")
+        print(tabulate([_task_row(t) for t in pending], headers=SCHED_HEADERS, tablefmt="rounded_outline"))
     else:
         print("    (none)")
 
@@ -176,8 +180,7 @@ def main() -> None:
         tasks = combined_scheduler.filter_by_pet(pet_name)
         print(f"\n  Tasks scheduled for '{pet_name}':")
         if tasks:
-            for t in tasks:
-                print(f"    {t.time}  {t.name:<22} | {t.duration_minutes} min | priority {t.priority}")
+            print(tabulate([_task_row(t) for t in tasks], headers=SCHED_HEADERS, tablefmt="rounded_outline"))
         else:
             print("    (none scheduled)")
 
@@ -219,9 +222,7 @@ def main() -> None:
 
     def print_task_list(label: str, tasks: list) -> None:
         print(f"  {label}")
-        for t in tasks:
-            status = "[x]" if t.is_completed else "[ ]"
-            print(f"    {status}  {t.name:<22} | {t.frequency:<8} | due {t.due_date}")
+        print(tabulate([_task_row(t) for t in tasks], headers=SCHED_HEADERS, tablefmt="rounded_outline"))
         print()
 
     print_task_list("BEFORE mark_task_complete:", recur_pet.get_tasks())
@@ -235,7 +236,7 @@ def main() -> None:
     print("  Next occurrences:")
     for task in [daily_walk, weekly_checkup, one_time_bath]:
         nxt = task.next_occurrence()
-        print(f"    {task.name:<22} → {nxt if nxt else '(one-time, no next occurrence)'}")
+        print(f"    {task.display_name:<34} → {nxt if nxt else '(one-time, no next occurrence)'}")
 
     print()
 
@@ -259,15 +260,19 @@ def main() -> None:
     conflict_scheduler.generate_plan()
 
     print("  Scheduled tasks:")
-    for t in conflict_scheduler.scheduled_tasks:
-        print(f"    {t.time}  {t.name}")
+    print(tabulate([_task_row(t) for t in conflict_scheduler.scheduled_tasks], headers=SCHED_HEADERS, tablefmt="rounded_outline"))
 
     print()
     result = conflict_scheduler.detect_conflicts()
     if result:
-        print(f"  {result.replace(chr(10), chr(10) + '  ')}")
+        print("  ⚠️  " + "─" * 54)
+        print("  ⚠️  SCHEDULING CONFLICTS DETECTED")
+        print("  ⚠️  " + "─" * 54)
+        for line in result.splitlines()[1:]:  # skip "Scheduling conflicts detected:" header
+            print(f"      {line.strip()}")
+        print("  " + "─" * 56)
     else:
-        print("  No conflicts found.")
+        print("  ✅  No conflicts found.")
 
     print()
 
@@ -310,6 +315,68 @@ def main() -> None:
   read at a glance. Flagged for human review — do not
   apply automatically.
 """)
+
+    # --- Weighted prioritization demo ------------------------------------
+    print(DIVIDER)
+    print("  Weighted Prioritization Demo")
+    print(DIVIDER)
+    print("""
+  Three tasks with the same owner budget (120 min).
+  Raw-priority ranking puts "Vet Checkup" (priority 5) first.
+  Weighted scoring inverts this: the low-priority daily task
+  due TODAY outranks the high-priority one-time task due in
+  two weeks because recurrence urgency + due-date proximity
+  outweigh the priority gap.
+""")
+
+    w_owner = Owner("Dana Kim", "dana@example.com", available_minutes_per_day=120)
+    w_pet = Pet(name="Pebble", species="Dog", breed="Poodle", age_years=2)
+
+    today = date.today()
+    w_pet.add_task(Task(
+        "Vet Checkup", duration_minutes=60, priority=5, category="health",
+        frequency="once", due_date=today + timedelta(days=14),
+    ))
+    w_pet.add_task(Task(
+        "Daily Walk", duration_minutes=20, priority=2, category="exercise",
+        frequency="daily", due_date=today,
+    ))
+    w_pet.add_task(Task(
+        "Weekly Grooming", duration_minutes=30, priority=3, category="grooming",
+        frequency="weekly", due_date=today + timedelta(days=7),
+    ))
+    w_owner.add_pet(w_pet)
+
+    w_scheduler = _scheduler_for_pet(w_owner, w_pet)
+
+    # Raw-priority plan
+    w_scheduler.generate_plan()
+    print("  Raw-priority plan (generate_plan):")
+    raw_rows = [
+        [i, t.priority_label, t.display_name]
+        for i, t in enumerate(w_scheduler.scheduled_tasks, 1)
+    ]
+    print(tabulate(raw_rows, headers=["Rank", "Priority", "Task"], tablefmt="rounded_outline"))
+
+    print()
+    print(SECTION)
+
+    # Weighted plan
+    w_scheduler.generate_weighted_plan()
+    print("  Weighted plan (generate_weighted_plan):")
+    weighted_rows = [
+        [i, f"{w_scheduler.score_task(t):.3f}", t.display_name]
+        for i, t in enumerate(w_scheduler.weighted_plan, 1)
+    ]
+    print(tabulate(weighted_rows, headers=["Rank", "Score", "Task"], tablefmt="rounded_outline"))
+
+    print()
+    print("  Score breakdown (explain_weighted_plan):")
+    print("  " + "─" * 56)
+    for line in w_scheduler.explain_weighted_plan().splitlines():
+        print(f"  {line}")
+    print()
+
     print(DIVIDER)
     print("  End of all demos.")
     print(DIVIDER)

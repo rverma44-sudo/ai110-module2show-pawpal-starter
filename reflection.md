@@ -1,7 +1,11 @@
 # PawPal+ Project Reflection
 
 ## 1. System Design
-Add a pet, look at schedule for today, prioritize committments.
+**Action 1 — Register a pet:** The owner opens the app and adds a new pet by entering the pet's name, species, breed, age, and any health notes. The pet is then stored under the owner's profile and available for task assignment.
+
+**Action 2 — Schedule daily tasks:** For each pet, the owner adds care tasks (walks, feeding, medication, grooming, etc.) with a duration, priority level, and category. The scheduler automatically generates a prioritized daily plan that fits within the owner's available time budget.
+
+**Action 3 — Review and prioritize today's plan:** The owner views today's schedule sorted chronologically, checks off completed tasks, and reads the conflict warnings or explanation text to understand why certain tasks were included or excluded.
 **a. Initial design**
 
 - Briefly describe your initial UML design.
@@ -85,3 +89,80 @@ With more time and another iteration I would probably just refine the time overl
 
 - What is one important thing you learned about designing systems or working with AI on this project?
 I learned AI output scales heavily with how well a prompt is. Broad prompts are generic and not very effective whereas specific prompts allow for specified results and outputs. I needed to know not just what to create, but what constraints are needed to avoid what not to create.
+
+## Prompt Comparison
+
+**Models compared:** Google Gemini vs Anthropic Claude Sonnet
+
+---
+
+### Gemini's Approach
+
+Gemini correctly identified `dataclasses.replace()` as the right tool 
+and produced a clean, readable solution. It used a standard `for` loop 
+with an early `break` to locate the target task, mutated it in place, 
+then appended a fresh recurring instance. The explanation focused on 
+practical benefits — avoiding boilerplate, memory safety, and clear 
+intent — making it accessible and easy to follow. The solution would 
+work correctly in the existing PawPal+ codebase with minimal changes.
+
+**Patterns used:** `dataclasses.replace()`, `for` loop with `break`, 
+`timedelta(days=7)`, `None` return type (implicit)
+
+---
+
+### Claude's Approach
+
+Claude produced a more advanced solution that introduced several 
+additional Python patterns. It used `next()` with a generator 
+expression instead of a `for` loop, wrapped in `try/except 
+StopIteration` for a clean `ValueError` on a missing task name. 
+It introduced a `StrEnum` for `Frequency` to make comparisons 
+identity-safe while keeping values serializable as plain strings. 
+It preferred `timedelta(weeks=1)` over `timedelta(days=7)` for 
+clearer intent, and made the return type explicit as `Task | None` 
+so callers know a new task is only produced for weekly recurrences.
+
+**Patterns used:** `dataclasses.replace()`, `next()` with generator, 
+`try/except StopIteration`, `StrEnum`, `timedelta(weeks=1)`, 
+explicit `Task | None` return type
+
+---
+
+### Which Was More Pythonic and Why
+
+Claude's solution is more Pythonic by conventional Python standards. 
+The use of `next()` with a generator expression is more idiomatic 
+than a `for` loop with a `break` for finding a single item. The 
+explicit `Task | None` return type makes the method's branching 
+behavior visible in the signature without reading the body. 
+`timedelta(weeks=1)` over `timedelta(days=7)` is a small but 
+meaningful signal-of-intent improvement. The `StrEnum` addition 
+goes furthest in terms of robustness, though it would require 
+updating the existing Task dataclass and serialization logic in 
+PawPal+, making it a larger change than the task strictly required.
+
+Gemini's solution is more immediately portable into the existing 
+codebase — it makes no assumptions about the Frequency type and 
+introduces no new dependencies or enum infrastructure.
+
+**Decision:** Claude's `next()` pattern and `timedelta(weeks=1)` 
+preference were adopted. The `StrEnum` was not adopted because 
+PawPal+ already stores frequency as a plain string and changing 
+the type would break the existing JSON serialization and pytest 
+suite without adding enough value to justify the refactor.
+
+---
+
+### What This Comparison Revealed
+
+Both models independently converged on `dataclasses.replace()` as 
+the correct tool, which confirms it is the genuinely idiomatic 
+choice for this pattern in Python. The meaningful difference was 
+not correctness but scope — Gemini solved exactly the stated 
+problem while Claude proposed a more complete design that assumed 
+a greenfield context. This revealed an important principle: a more 
+Pythonic solution is not always the right solution. Evaluating AI 
+output requires weighing technical elegance against the cost of 
+integrating that solution into an existing system with existing 
+constraints.
