@@ -6,11 +6,17 @@ Add a pet, look at schedule for today, prioritize committments.
 
 - Briefly describe your initial UML design.
 - What classes did you include, and what responsibilities did you assign to each?
+My UML design has 4 classes:
+Task: Assigns tasks and priority levels which are associated with name, duration, category, things like that. Task also manages its own state by marking tasks complete or resetting them
+Pet - This class owns the list of tasks and manages them as well as calculating total task duration
+Owner: This class manages the collection of pets and tracks how many minutes per day is available
+Scheduler: This class is the brain, it generates a filtered, time-constrained daily plan and explains its reasoning based on the tasks and time delegated.
 
 **b. Design changes**
 
 - Did your design change during implementation?
 - If yes, describe at least one change and why you made it.
+Yes it did, my design had the flaw in the Scheduler class. The class only allowed for one pet to be held. That was an issue because it broke the core ownership model in the UML. If there are multiple pets, the schedule can't incorporate those which would make it useless.
 
 ---
 
