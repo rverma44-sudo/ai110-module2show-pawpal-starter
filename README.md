@@ -72,4 +72,24 @@ python -m pytest
 - **Schedule Clashes** — If two tasks are scheduled on accident for the exact same time, the app will warn you to avoid that or allow you to address it.
 - **Edge cases** — Ensures app doesn't crash with empty cariables. Empty task lists produce an empty plan without raising an exception; unknown task names return a warning string; a time budget smaller than the shortest task yields an empty plan; one-time tasks do not generate a new occurrence after completion.
 
-**Confidence Level: 5/5 Stars. Based on my test results, I am very confident in the system's reliability.
+- **Confidence Level** - 5/5 Stars. Based on my test results, I am very confident in the system's reliability.
+
+## ✨ Features
+
+- **Priority-Based Scheduling** — `generate_plan()` sorts all non-completed tasks by priority descending, then greedily adds each task to the daily plan only if its duration fits within the remaining time budget.
+- **Time-Constrained Planning** — `owner.available_minutes_per_day` acts as a hard cap; a task is excluded from the plan the moment adding it would cause cumulative scheduled minutes to exceed that limit.
+- **Sorting by Time** — `sort_by_time()` returns a new list of the current scheduled tasks ordered chronologically by their `time` attribute without mutating the original `scheduled_tasks` list.
+- **Filtering by Status** — `filter_by_status(is_completed)` returns only the scheduled tasks whose completion flag matches the requested state, letting owners focus on what still needs doing.
+- **Filtering by Pet** — `filter_by_pet(pet_name)` returns scheduled tasks that belong to a specific pet by name (case-insensitive), useful when an owner manages multiple pets with overlapping schedules.
+- **Daily Recurrence** — when a daily task is marked complete via `mark_task_complete()`, a fresh copy with `is_completed=False` and `due_date` advanced by one day is automatically appended to the pet's task list.
+- **Weekly Recurrence** — when a weekly task is marked complete, the same copy mechanism runs but advances `due_date` by seven days, ensuring the next occurrence appears in future plans without manual re-entry.
+- **Conflict Detection** — `detect_conflicts()` groups scheduled tasks by their `time` string and returns a formatted warning listing every time slot that has more than one task, or `None` if no conflicts exist, so the owner is informed without the app raising an exception.
+- **Plan Explanation** — `explain_plan()` produces a human-readable summary of included tasks (ordered by priority), tasks skipped due to insufficient remaining time, and tasks already completed, so the owner understands exactly why each task was included or excluded.
+- **Persistent UI State** — `st.session_state` stores the `owner`, `current_pet`, and `scheduler` objects across every Streamlit rerun, so pets, tasks, and the active plan survive all widget interactions without being reset.
+
+## 📸 Demo
+
+<a href="/course_images/ai110/Pawpal_screenshot.png" target="_blank">
+  <img src='/course_images/ai110/Pawpal_screenshot.png'
+  title='PawPal App' width='' alt='PawPal App' class='center-block' />
+</a>
