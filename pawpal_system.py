@@ -1,5 +1,6 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from datetime import date, timedelta
 
 
 @dataclass
@@ -10,14 +11,27 @@ class Task:
     category: str
     is_completed: bool = False
     notes: str = ""
+    time: str = "00:00"
+    frequency: str = "once"
+    due_date: date = field(default_factory=date.today)
 
     def mark_complete(self) -> None:
-        """Marks this task as completed."""
+        """Marks this task as completed and advances due_date for recurring tasks."""
         self.is_completed = True
+        if self.frequency == "daily":
+            self.due_date = date.today() + timedelta(days=1)
+        elif self.frequency == "weekly":
+            self.due_date = date.today() + timedelta(weeks=1)
 
     def reset(self) -> None:
         """Clears the completed status so the task can be rescheduled."""
         self.is_completed = False
+
+    def next_occurrence(self) -> str | None:
+        """Returns the next due date as YYYY-MM-DD for recurring tasks, or None for one-time tasks."""
+        if self.frequency == "once":
+            return None
+        return self.due_date.strftime("%Y-%m-%d")
 
     def is_higher_priority_than(self, other: Task) -> bool:
         """Returns True if this task has a higher priority than the given task."""
@@ -81,12 +95,15 @@ class Owner:
         return False
 
     def get_pets(self) -> list[Pet]:
+        """Returns a copy of all pets belonging to this owner."""
         return list(self._pets)
 
     def set_available_time(self, minutes: int) -> None:
+        """Updates the owner's daily time budget in minutes."""
         self.available_minutes_per_day = minutes
 
     def get_all_tasks(self) -> list[Task]:
+        """Returns every task across all of this owner's pets in a single list."""
         tasks: list[Task] = []
         for pet in self._pets:
             tasks.extend(pet.get_tasks())
@@ -100,6 +117,7 @@ class Scheduler:
         self.scheduled_tasks: list[Task] = []
 
     def generate_plan(self) -> list[Task]:
+        """Selects tasks that fit within the owner's daily time budget, ordered by priority."""
         self.pets = self.owner.get_pets()
         candidates = sorted(
             (t for pet in self.pets for t in pet.get_tasks() if not t.is_completed),
@@ -116,6 +134,7 @@ class Scheduler:
         return self.scheduled_tasks
 
     def filter_by_priority(self, min_priority: int) -> list[Task]:
+        """Returns all tasks across the owner's pets at or above the given priority level."""
         self.pets = self.owner.get_pets()
         return [
             task
@@ -125,12 +144,14 @@ class Scheduler:
         ]
 
     def fits_within_time(self, tasks: list[Task]) -> bool:
+        """Returns True if the combined duration of the given tasks fits within the owner's daily budget."""
         return (
             sum(t.duration_minutes for t in tasks)
             <= self.owner.available_minutes_per_day
         )
 
     def explain_plan(self) -> str:
+        """Returns a human-readable summary of which tasks were scheduled and why others were skipped."""
         self.pets = self.owner.get_pets()
         all_tasks = [t for pet in self.pets for t in pet.get_tasks()]
         scheduled_names = {t.name for t in self.scheduled_tasks}
@@ -168,4 +189,53 @@ class Scheduler:
         return "\n".join(lines)
 
     def get_total_scheduled_duration(self) -> int:
+        """Returns the total minutes consumed by all currently scheduled tasks."""
         return sum(t.duration_minutes for t in self.scheduled_tasks)
+
+    def sort_by_time(self) -> list[Task]:
+        """Returns scheduled tasks sorted chronologically by their time attribute without modifying the original list."""
+        if not self.scheduled_tasks:
+            return []
+        return sorted(
+            self.scheduled_tasks,
+            key=lambda t: tuple(int(part) for part in t.time.split(":")),
+        )
+
+    def filter_by_status(self, is_completed: bool) -> list[Task]:
+        """Returns scheduled tasks that match the given completion state."""
+        return [t for t in self.scheduled_tasks if t.is_completed == is_completed]
+
+    def filter_by_pet(self, pet_name: str) -> list[Task]:
+        """Returns scheduled tasks belonging to the pet with the given name, case-insensitively."""
+        scheduled_ids = {id(t) for t in self.scheduled_tasks}
+        for pet in self.pets:
+            if pet.name.lower() == pet_name.lower():
+                return [t for t in pet.get_tasks() if id(t) in scheduled_ids]
+        return []
+
+    def mark_task_complete(self, task_name: str) -> str | None:
+        """Marks a scheduled task complete by name and queues the next occurrence if it is recurring."""
+        target = next((t for t in self.scheduled_tasks if t.name == task_name), None)
+        if target is None:
+            return f"Warning: no scheduled task named '{task_name}' was found."
+        target.mark_complete()
+        if target.frequency != "once":
+            new_occurrence = replace(target, is_completed=False)
+            for pet in self.pets:
+                if any(id(t) == id(target) for t in pet.get_tasks()):
+                    pet.add_task(new_occurrence)
+                    break
+        return None
+
+    def detect_conflicts(self) -> str | None:
+        """Returns a warning string listing tasks that share the same scheduled time, or None if no conflicts exist."""
+        time_groups: dict[str, list[str]] = {}
+        for task in self.scheduled_tasks:
+            time_groups.setdefault(task.time, []).append(task.name)
+        conflicts = {t: names for t, names in time_groups.items() if len(names) > 1}
+        if not conflicts:
+            return None
+        lines = ["Scheduling conflicts detected:"]
+        for t in sorted(conflicts):
+            lines.append(f"  {t} — {', '.join(conflicts[t])}")
+        return "\n".join(lines)

@@ -26,12 +26,12 @@ Yes it did, my design had the flaw in the Scheduler class. The class only allowe
 
 - What constraints does your scheduler consider (for example: time, priority, preferences)?
 - How did you decide which constraints mattered most?
-
+The two biggest constraints that I chose mattered most were time and priority. Available minutes per day on the owner is the most important constraint as it is the hard cap on how much time can even be delegated for tasks. Right after time is priority because the tasks that have higher priority need to be done next given the timeframe. I didn't consider preference to be as important because from an objective standpoint going based on preference all the time won't ensure important tasks will be completed.
 **b. Tradeoffs**
 
 - Describe one tradeoff your scheduler makes.
 - Why is that tradeoff reasonable for this scenario?
-
+The biggest tradeoff my scheduler makes is overlapping time. It only flags exact time matches not time windows such as a 10 min task at 9 am and a 20 min task at 9:05 because the schedule is for a pet owner with a loose daily routine, not an excruciatingly strict minute to minute schedule.
 ---
 
 ## 3. AI Collaboration
